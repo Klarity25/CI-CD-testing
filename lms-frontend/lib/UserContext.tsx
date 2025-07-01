@@ -114,7 +114,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     if (!token || token === "null" || !deviceId) {
       setUserDetails(null);
       setLoading(false);
-      logout(); // Trigger logout if token or deviceId is missing
+      logout();
       return;
     }
 

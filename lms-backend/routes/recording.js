@@ -223,7 +223,7 @@ router.post(
           });
       });
 
-      logger.info("Sending recording uploaded email and SMS");
+      logger.info("Sending recording uploaded email");
       const callDetails = {
         classType: scheduledCall.classType,
         type: scheduledCall.type,
@@ -241,16 +241,6 @@ router.post(
             error
           );
         }),
-        sendRecordingUploadedSMS(
-          scheduledCall.teacherId.phone,
-          scheduledCall.teacherId.name,
-          callDetails
-        ).catch((error) => {
-          logger.error(
-            `Failed to send recording SMS to ${scheduledCall.teacherId.phone}:`,
-            error
-          );
-        }),
         ...scheduledCall.studentIds
           .map((student) => [
             sendRecordingUploadedEmail(
@@ -260,16 +250,6 @@ router.post(
             ).catch((error) => {
               logger.error(
                 `Failed to send recording email to ${student.email}:`,
-                error
-              );
-            }),
-            sendRecordingUploadedSMS(
-              student.phone,
-              student.name,
-              callDetails
-            ).catch((error) => {
-              logger.error(
-                `Failed to send recording SMS to ${student.phone}:`,
                 error
               );
             }),
@@ -284,16 +264,6 @@ router.post(
             ).catch((error) => {
               logger.error(
                 `Failed to send recording email to ${admin.userId.email}:`,
-                error
-              );
-            }),
-            sendRecordingUploadedSMS(
-              admin.userId.phone,
-              admin.userId.name,
-              callDetails
-            ).catch((error) => {
-              logger.error(
-                `Failed to send recording SMS to ${admin.userId.phone}:`,
                 error
               );
             }),

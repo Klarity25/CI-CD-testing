@@ -128,7 +128,6 @@ api.interceptors.response.use(
       url: response.config.url,
       status: response.status,
     });
-    // Check if the response includes a new token
     if (response.data.token) {
       const currentToken = localStorage.getItem("token");
       if (response.data.token !== currentToken) {

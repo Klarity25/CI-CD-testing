@@ -134,7 +134,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     );
     const { user: restoredUser, token: newToken } = response.data;
 
-    // Update localStorage with the new token
     if (newToken && newToken !== token) {
       localStorage.setItem("token", newToken);
       console.debug("[AuthProvider] Updated token in localStorage");
