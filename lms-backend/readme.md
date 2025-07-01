@@ -80,11 +80,5 @@ db.admins.insertOne({
 https://frontendnew-470003429420.asia-south2.run.app
 https://klaritilms-470003429420.asia-south2.run.app
 
-## Development:
-https://klaritilms-frontend.onrender.com
-https://klaritilms-u5bp.onrender.com
-
 ## Testing:
 
-https://klaritilms-test.onrender.com
-https://klaritilms-test-frontend.onrender.com
