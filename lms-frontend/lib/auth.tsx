@@ -55,59 +55,127 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(null);
   };
 
+  // const restoreSession = useCallback(async () => {
+  //   setLoading(true);
+  //   const token = localStorage.getItem("token");
+  //   const userId = localStorage.getItem("userId");
+  //   const isLoggedIn = localStorage.getItem("isLoggedIn");
+  //   const lastPath = localStorage.getItem("lastPath") || "/my-learnings";
+
+  //   if (!token || !userId || isLoggedIn !== "true" || !deviceId) {
+  //     clearSession();
+  //     setLoading(false);
+  //     setSessionRestored(true);
+  //     router.push("/login");
+  //     return;
+  //   }
+
+  //   try {
+  //     const response = await api.post("/auth/direct-login", {}, {
+  //       headers: { Authorization: `Bearer ${token}`, "Device-Id": deviceId },
+  //     });
+  //     const { user: restoredUser, token: returnedToken } = response.data;
+  //     if (returnedToken && returnedToken !== token) {
+  //       localStorage.setItem("token", returnedToken);
+  //     }
+  //     localStorage.setItem("userId", restoredUser._id);
+  //     localStorage.setItem("isLoggedIn", "true");
+  //     setUser(restoredUser);
+  //     setSessionRestored(true);
+
+  //     await api.post("/auth/sync-device", { deviceId }, {
+  //       headers: { "Device-Id": deviceId, Authorization: `Bearer ${returnedToken || token}` },
+  //     });
+
+  //     const roleName = restoredUser.role?.roleName.toLowerCase().replace(/\s+/g, "");
+  //     setTimeout(() => {
+  //       if ((roleName === "student" || roleName === "teacher") && 
+  //           (restoredUser.isFirstLogin || !restoredUser.isTimezoneSet)) {
+  //         router.push("/timezone-setup");
+  //         localStorage.setItem("lastPath", lastPath);
+  //       } else {
+  //         router.push(lastPath);
+  //       }
+  //     }, 500);
+  //   } catch (error) {
+  //     const errorMsg = error as ApiError;
+  //     clearSession();
+  //     setLoading(false);
+  //     setSessionRestored(true);
+  //     router.push("/login");
+  //     toast.error(errorMsg?.response?.data?.message || "Session expired. Please log in again.");
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // }, [deviceId, router]);
+
   const restoreSession = useCallback(async () => {
-    setLoading(true);
-    const token = localStorage.getItem("token");
-    const userId = localStorage.getItem("userId");
-    const isLoggedIn = localStorage.getItem("isLoggedIn");
-    const lastPath = localStorage.getItem("lastPath") || "/my-learnings";
+  setLoading(true);
+  const token = localStorage.getItem("token");
+  const userId = localStorage.getItem("userId");
+  const isLoggedIn = localStorage.getItem("isLoggedIn");
+  const lastPath = localStorage.getItem("lastPath") || "/my-learnings";
 
-    if (!token || !userId || isLoggedIn !== "true" || !deviceId) {
-      clearSession();
-      setLoading(false);
-      setSessionRestored(true);
-      router.push("/login");
-      return;
-    }
+  if (!token || !userId || isLoggedIn !== "true" || !deviceId) {
+    clearSession();
+    setLoading(false);
+    setSessionRestored(true);
+    router.push("/login");
+    return;
+  }
 
-    try {
-      const response = await api.post("/auth/direct-login", {}, {
+  try {
+    const response = await api.post(
+      "/auth/direct-login",
+      {},
+      {
         headers: { Authorization: `Bearer ${token}`, "Device-Id": deviceId },
-      });
-      const { user: restoredUser, token: returnedToken } = response.data;
-      if (returnedToken && returnedToken !== token) {
-        localStorage.setItem("token", returnedToken);
       }
-      localStorage.setItem("userId", restoredUser._id);
-      localStorage.setItem("isLoggedIn", "true");
-      setUser(restoredUser);
-      setSessionRestored(true);
+    );
+    const { user: restoredUser, token: newToken } = response.data;
 
-      await api.post("/auth/sync-device", { deviceId }, {
-        headers: { "Device-Id": deviceId, Authorization: `Bearer ${returnedToken || token}` },
-      });
-
-      const roleName = restoredUser.role?.roleName.toLowerCase().replace(/\s+/g, "");
-      setTimeout(() => {
-        if ((roleName === "student" || roleName === "teacher") && 
-            (restoredUser.isFirstLogin || !restoredUser.isTimezoneSet)) {
-          router.push("/timezone-setup");
-          localStorage.setItem("lastPath", lastPath);
-        } else {
-          router.push(lastPath);
-        }
-      }, 500);
-    } catch (error) {
-      const errorMsg = error as ApiError;
-      clearSession();
-      setLoading(false);
-      setSessionRestored(true);
-      router.push("/login");
-      toast.error(errorMsg?.response?.data?.message || "Session expired. Please log in again.");
-    } finally {
-      setLoading(false);
+    // Update localStorage with the new token
+    if (newToken && newToken !== token) {
+      localStorage.setItem("token", newToken);
+      console.debug("[AuthProvider] Updated token in localStorage");
     }
-  }, [deviceId, router]);
+
+    localStorage.setItem("userId", restoredUser._id);
+    localStorage.setItem("isLoggedIn", "true");
+    setUser(restoredUser);
+    setSessionRestored(true);
+
+    await api.post(
+      "/auth/sync-device",
+      { deviceId },
+      {
+        headers: { "Device-Id": deviceId, Authorization: `Bearer ${newToken || token}` },
+      }
+    );
+
+    const roleName = restoredUser.role?.roleName.toLowerCase().replace(/\s+/g, "");
+    setTimeout(() => {
+      if (
+        (roleName === "student" || roleName === "teacher") &&
+        (restoredUser.isFirstLogin || !restoredUser.isTimezoneSet)
+      ) {
+        router.push("/timezone-setup");
+        localStorage.setItem("lastPath", lastPath);
+      } else {
+        router.push(lastPath);
+      }
+    }, 500);
+  } catch (error) {
+    const errorMsg = error as ApiError;
+    clearSession();
+    setLoading(false);
+    setSessionRestored(true);
+    router.push("/login");
+    toast.error(errorMsg?.response?.data?.message || "Session expired. Please log in again.");
+  } finally {
+    setLoading(false);
+  }
+}, [deviceId, router]);
 
     useEffect(() => {
     if (deviceId) {

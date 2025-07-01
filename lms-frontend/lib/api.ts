@@ -6,9 +6,7 @@ interface PendingRequest {
 }
 
 const api = axios.create({
-  // baseURL: process.env.NEXT_PUBLIC_API_URL,
-  baseURL: "https://klaritilms-470003429420.asia-south2.run.app/api",
-
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
   headers: {
     "Content-Type": "application/json",
   },
@@ -96,12 +94,48 @@ api.interceptors.request.use(
   }
 );
 
+// api.interceptors.response.use(
+//   (response) => {
+//     console.debug("[API] Response received:", {
+//       url: response.config.url,
+//       status: response.status,
+//     });
+//     return response;
+//   },
+//   (error) => {
+//     console.error("[API] Response error:", {
+//       url: error.config?.url,
+//       status: error.response?.status,
+//       message: error.response?.data?.message,
+//     });
+//     if (
+//       error.response?.status === 401 &&
+//       !error.config.url.includes("/auth/logout")
+//     ) {
+//       console.warn("[API] 401 Unauthorized, clearing session");
+//       localStorage.setItem("isLoggedIn", "false");
+//       if (typeof window !== "undefined") {
+//         window.location.href = "/login";
+//       }
+//     }
+//     return Promise.reject(error);
+//   }
+// );
+
 api.interceptors.response.use(
   (response) => {
     console.debug("[API] Response received:", {
       url: response.config.url,
       status: response.status,
     });
+    // Check if the response includes a new token
+    if (response.data.token) {
+      const currentToken = localStorage.getItem("token");
+      if (response.data.token !== currentToken) {
+        localStorage.setItem("token", response.data.token);
+        console.debug("[API] Updated token in localStorage from response:", response.config.url);
+      }
+    }
     return response;
   },
   (error) => {

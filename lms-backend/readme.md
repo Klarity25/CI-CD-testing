@@ -74,3 +74,14 @@ db.admins.insertOne({
   createdAt: new Date(),
   updatedAt: new Date()
 })
+
+
+## Production:
+https://frontendnew-470003429420.asia-south2.run.app
+https://klaritilms-470003429420.asia-south2.run.app/api
+
+## Development:
+
+## Testing:
+
+

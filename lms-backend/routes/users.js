@@ -4,9 +4,7 @@ const User = require("../models/User");
 const authenticate = require("../middleware/auth");
 const Notification = require("../models/Notification");
 const { sendReportCardEmail } = require("../services/emailService");
-const { sendReportCardSMS } = require("../services/smsService");
 const { check, validationResult } = require("express-validator");
-
 const Role = require("../models/Role");
 const ReportCard = require("../models/ReportCard");
 const logger = require("../utils/logger");
@@ -183,20 +181,6 @@ router.post("/report-card", authenticate, async (req, res) => {
           error
         );
       });
-
-      if (admin.phone) {
-        sendReportCardSMS(
-          admin.phone,
-          student.name,
-          teacher.name,
-          rating
-        ).catch((error) => {
-          logger.error(
-            `Failed to send report card SMS to ${admin.phone}:`,
-            error
-          );
-        });
-      }
     });
 
     logger.info(

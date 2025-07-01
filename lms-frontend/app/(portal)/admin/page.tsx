@@ -555,8 +555,9 @@ export default function AdminPortal() {
               <Card
                 className="relative overflow-hidden border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-white/80 backdrop-blur-sm cursor-pointer"
                 onClick={() => router.push(stat.href)}
-              >                 
-              <div className={`absolute inset-0 bg-gradient-to-br ${stat.bgGradient} opacity-50`}
+              >
+                <div
+                  className={`absolute inset-0 bg-gradient-to-br ${stat.bgGradient} opacity-50`}
                 ></div>
                 <CardContent className="relative p-6">
                   <div className="flex items-center justify-between mb-4">

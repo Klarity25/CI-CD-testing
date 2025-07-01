@@ -11,9 +11,9 @@ const redisClient = createClient({
         logger.error("Too many Redis reconnect attempts");
         return new Error("Too many reconnect attempts");
       }
-      return Math.min(retries * 100, 3000); // Exponential backoff up to 3s
+      return Math.min(retries * 100, 3000);
     },
-    connectTimeout: 10000, // 10s timeout for initial connection
+    connectTimeout: 10000,
   },
 });
 
