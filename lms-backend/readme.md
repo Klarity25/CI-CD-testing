@@ -78,10 +78,13 @@ db.admins.insertOne({
 
 ## Production:
 https://frontendnew-470003429420.asia-south2.run.app
-https://klaritilms-470003429420.asia-south2.run.app/api
+https://klaritilms-470003429420.asia-south2.run.app
 
 ## Development:
+https://klaritilms-frontend.onrender.com
+https://klaritilms-u5bp.onrender.com
 
 ## Testing:
+
 
 
