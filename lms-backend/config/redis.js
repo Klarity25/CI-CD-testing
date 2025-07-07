@@ -38,12 +38,25 @@ redisClient.on("reconnecting", () => {
 });
 
 const connectRedis = async () => {
-  try {
-    await redisClient.connect();
-    logger.info("Redis connection established");
-  } catch (err) {
-    logger.error("Failed to connect to Redis:", err);
-    throw err;
+  let retries = 0;
+  const maxRetries = 5;
+
+  while (retries < maxRetries) {
+    try {
+      await redisClient.connect();
+      logger.info("Redis connection established");
+      return;
+    } catch (err) {
+      retries++;
+      logger.error(
+        `Failed to connect to Redis (attempt ${retries}/${maxRetries}):`,
+        err
+      );
+      if (retries === maxRetries) {
+        throw new Error("Failed to connect to Redis after maximum retries");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000 * retries));
+    }
   }
 };
 

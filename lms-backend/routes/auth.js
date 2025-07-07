@@ -4,7 +4,6 @@ const { check, validationResult } = require("express-validator");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const Admin = require("../models/Admin");
-const Role = require("../models/Role");
 const Notification = require("../models/Notification");
 const {
   sendEmailOTP,
@@ -31,6 +30,20 @@ const fs = require("fs").promises;
 const generateOTP = () => {
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   return otp.padStart(6, "0");
+};
+
+const acquireLock = async (key, timeout = 5000) => {
+  const lockKey = `lock:${key}`;
+  const result = await redisClient.set(lockKey, "locked", {
+    NX: true,
+    PX: timeout,
+  });
+  return result === "OK";
+};
+
+const releaseLock = async (key) => {
+  const lockKey = `lock:${key}`;
+  await redisClient.del(lockKey);
 };
 
 // Signup
@@ -70,11 +83,9 @@ router.post(
       const existingPhone = await User.findOne({ phone });
       if (existingPhone) {
         logger.warn(`User with phone already registered: ${phone}`);
-        return res
-          .status(400)
-          .json({
-            errors: [{ msg: "User with phone number already registered" }],
-          });
+        return res.status(400).json({
+          errors: [{ msg: "User with phone number already registered" }],
+        });
       }
 
       const adminUsers = await Admin.find().populate("userId");
@@ -92,11 +103,9 @@ router.post(
       );
       if (existingPhoneAdmin) {
         logger.warn(`User with phone already registered: ${phone}`);
-        return res
-          .status(400)
-          .json({
-            errors: [{ msg: "User with phone number already registered" }],
-          });
+        return res.status(400).json({
+          errors: [{ msg: "User with phone number already registered" }],
+        });
       }
 
       const verificationId = new mongoose.Types.ObjectId().toString();
@@ -251,7 +260,7 @@ router.post(
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
         expiresIn: "7d",
       });
-      await redisClient.setEx(`session:${user._id}`,   7 * 24 * 3600, token);
+      await redisClient.setEx(`session:${user._id}`, 7 * 24 * 3600, token);
 
       const verifiedUserData = {
         _id: user._id,
@@ -377,66 +386,81 @@ router.post(
 
     const { userId, otp } = req.body;
     const deviceId = req.header("Device-Id") || "unknown";
+    const lockKey = `login:${userId}:${deviceId}`;
 
     try {
-      const user = await User.findById(userId).populate("role");
-      if (!user) {
-        logger.warn(`User not found: ${userId}`);
-        return res.status(404).json({ message: "User not found" });
+      const lockAcquired = await acquireLock(lockKey);
+      if (!lockAcquired) {
+        logger.warn(
+          `Failed to acquire lock for user ${userId}, device ${deviceId}`
+        );
+        return res
+          .status(429)
+          .json({ message: "Too many login attempts, please try again" });
       }
 
-      const storedOTP =
-        (await redisClient.get(`otp:login:${user.email}`)) ||
-        (await redisClient.get(`otp:login:${user.phone}`));
-      if (storedOTP !== otp) {
-        logger.warn(`Invalid login OTP for user: ${userId}`);
-        return res.status(400).json({ message: "Invalid OTP" });
+      try {
+        const user = await User.findById(userId).populate("role");
+        if (!user) {
+          logger.warn(`User not found: ${userId}`);
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        const storedOTP =
+          (await redisClient.get(`otp:login:${user.email}`)) ||
+          (await redisClient.get(`otp:login:${user.phone}`));
+        if (storedOTP !== otp) {
+          logger.warn(`Invalid login OTP for user: ${userId}`);
+          return res.status(400).json({ message: "Invalid OTP" });
+        }
+
+        await Promise.all([
+          redisClient.del(`otp:login:${user.email}`),
+          redisClient.del(`otp:login:${user.phone}`),
+          redisClient.del(`login:method:${userId}:${deviceId}`),
+        ]);
+
+        const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+          expiresIn: "7d",
+        });
+        await redisClient.setEx(
+          `session:${user._id}:${deviceId}`,
+          7 * 24 * 3600,
+          token
+        );
+
+        let role = null;
+        const admin = await Admin.findOne({ userId: user._id });
+        if (admin) {
+          role = { roleName: admin.role };
+        } else if (user.role) {
+          role = { roleName: user.role.roleName };
+        }
+
+        const loginUserData = {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          gender: user.gender,
+          role,
+          profileImage: user.profileImage,
+          subjects: user.subjects,
+          timezone: user.timezone,
+          isTimezoneSet: user.isTimezoneSet,
+          address: user.address,
+          joinDate: user.joinDate,
+          studentId: user.studentId,
+          employeeId: user.employeeId,
+          isFirstLogin: user.isFirstLogin,
+          profile: user.profile,
+        };
+
+        logger.info(`User logged in: ${user.email}`);
+        res.json({ message: "Login successful", token, user: loginUserData });
+      } finally {
+        await releaseLock(lockKey);
       }
-
-      await Promise.all([
-        redisClient.del(`otp:login:${user.email}`),
-        redisClient.del(`otp:login:${user.phone}`),
-        redisClient.del(`login:method:${userId}:${deviceId}`),
-      ]);
-
-      const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-        expiresIn: "7d",
-      });
-      await redisClient.setEx(
-        `session:${user._id}:${deviceId}`,
-        7 * 24 * 3600,
-        token
-      );
-
-      let role = null;
-      const admin = await Admin.findOne({ userId: user._id });
-      if (admin) {
-        role = { roleName: admin.role };
-      } else if (user.role) {
-        role = { roleName: user.role.roleName };
-      }
-
-      const loginUserData = {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        gender: user.gender,
-        role,
-        profileImage: user.profileImage,
-        subjects: user.subjects,
-        timezone: user.timezone,
-        isTimezoneSet: user.isTimezoneSet,
-        address: user.address,
-        joinDate: user.joinDate,
-        studentId: user.studentId,
-        employeeId: user.employeeId,
-        isFirstLogin: user.isFirstLogin,
-        profile: user.profile,
-      };
-
-      logger.info(`User logged in: ${user.email}`);
-      res.json({ message: "Login successful", token, user: loginUserData });
     } catch (error) {
       logger.error("Verify login OTP error:", error);
       res.status(500).json({ message: "Server error", error: error.message });
@@ -534,11 +558,9 @@ router.post(
         logger.warn(
           `Login method not found for user: ${userId}, device: ${deviceId}`
         );
-        return res
-          .status(400)
-          .json({
-            message: "No active login attempt found. Please start a new login.",
-          });
+        return res.status(400).json({
+          message: "No active login attempt found. Please start a new login.",
+        });
       }
 
       const loginOTP = generateOTP();
@@ -567,6 +589,7 @@ router.post("/direct-login", async (req, res) => {
   try {
     const deviceId = req.header("Device-Id") || "unknown";
     const token = req.header("Authorization")?.replace("Bearer ", "");
+    const lockKey = `login:${deviceId}`;
 
     if (!token) {
       logger.warn(`No token provided for device: ${deviceId}`);
@@ -574,8 +597,9 @@ router.post("/direct-login", async (req, res) => {
     }
 
     let userId;
+    let decoded;
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
       userId = decoded.userId;
       logger.debug(`JWT verified for user: ${userId}, device: ${deviceId}`);
     } catch (error) {
@@ -587,96 +611,103 @@ router.post("/direct-login", async (req, res) => {
         .json({ errors: [{ msg: "Invalid or expired token" }] });
     }
 
-    const sessionToken = await redisClient.get(`session:${userId}:${deviceId}`);
-    if (!sessionToken || sessionToken !== token) {
+    const lockAcquired = await acquireLock(lockKey);
+    if (!lockAcquired) {
       logger.warn(
-        `No active session for user: ${userId}, device: ${deviceId}`,
-        {
-          sessionTokenExists: !!sessionToken,
-          tokenMatch: sessionToken === token,
-        }
+        `Failed to acquire lock for user ${userId}, device ${deviceId}`
       );
-      return res.status(401).json({ errors: [{ msg: "Session expired" }] });
+      return res
+        .status(429)
+        .json({ message: "Too many login attempts, please try again" });
     }
-
-    // Generate a new JWT token
-    const newToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
 
     try {
-      await redisClient.setEx(
-        `session:${userId}:${deviceId}`,
-        7 * 24 * 3600,
-        newToken
+      const sessionToken = await redisClient.get(
+        `session:${userId}:${deviceId}`
       );
-      logger.debug(`New token issued for user: ${userId}, device: ${deviceId}`);
-    } catch (redisError) {
-      logger.error("Redis error during session extension:", redisError);
-      return res
-        .status(503)
-        .json({ errors: [{ msg: "Service temporarily unavailable" }] });
+      if (!sessionToken) {
+        logger.warn(
+          `No active session for user: ${userId}, device: ${deviceId}`,
+          {
+            sessionTokenExists: !!sessionToken,
+          }
+        );
+        return res.status(401).json({ errors: [{ msg: "Session expired" }] });
+      }
+
+      if (
+        sessionToken === token &&
+        decoded.exp > Math.floor(Date.now() / 1000) + 24 * 3600
+      ) {
+        logger.debug(
+          `Reusing existing token for user: ${userId}, device: ${deviceId}`
+        );
+        await redisClient.expire(
+          `session:${userId}:${deviceId}`,
+          7 * 24 * 3600
+        );
+      } else {
+        const newToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
+          expiresIn: "7d",
+        });
+        await redisClient.setEx(
+          `session:${userId}:${deviceId}`,
+          7 * 24 * 3600,
+          newToken
+        );
+        logger.debug(
+          `New token issued for user: ${userId}, device: ${deviceId}`
+        );
+        token = newToken;
+      }
+
+      const user = await User.findById(userId).populate("role").select("-__v");
+      if (!user) {
+        logger.warn(`User not found: ${userId}`);
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      let role = null;
+      const admin = await Admin.findOne({ userId: user._id });
+      if (admin) {
+        role = { roleName: admin.role };
+      } else if (user.role) {
+        role = { roleName: user.role.roleName };
+      }
+
+      const directLoginUserData = {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        gender: user.gender,
+        role,
+        profileImage: user.profileImage,
+        subjects: user.subjects,
+        timezone: user.timezone,
+        isTimezoneSet: user.isTimezoneSet,
+        address: user.address,
+        joinDate: user.joinDate,
+        studentId: user.studentId,
+        employeeId: user.employeeId,
+        isFirstLogin: user.isFirstLogin,
+        profile: user.profile,
+      };
+
+      logger.info(
+        `Direct login successful for user: ${user.email}, device: ${deviceId}`
+      );
+      res.json({
+        message: "Direct login successful",
+        user: directLoginUserData,
+        token,
+      });
+    } finally {
+      await releaseLock(lockKey);
     }
-
-    const user = await User.findById(userId).populate("role").select("-__v");
-    if (!user) {
-      logger.warn(`User not found: ${userId}`);
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    let role = null;
-    const admin = await Admin.findOne({ userId: user._id });
-    if (admin) {
-      role = { roleName: admin.role };
-    } else if (user.role) {
-      role = { roleName: user.role.roleName };
-    }
-
-    const directLoginUserData = {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      gender: user.gender,
-      role,
-      profileImage: user.profileImage,
-      subjects: user.subjects,
-      timezone: user.timezone,
-      isTimezoneSet: user.isTimezoneSet,
-      address: user.address,
-      joinDate: user.joinDate,
-      studentId: user.studentId,
-      employeeId: user.employeeId,
-      isFirstLogin: user.isFirstLogin,
-      profile: user.profile,
-    };
-
-    logger.info(
-      `Direct login successful with new token for user: ${user.email}, device: ${deviceId}`
-    );
-    res.json({
-      message: "Direct login successful",
-      user: directLoginUserData,
-      token: newToken,
-    });
   } catch (error) {
     logger.error("Direct login error:", error);
     res.status(500).json({ message: "Server error", error: error.message });
-  }
-});
-
-// Logout
-router.post("/logout", authenticate, async (req, res) => {
-  const deviceId = req.header("Device-Id") || "unknown";
-  const userId = req.user.userId;
-
-  try {
-    await redisClient.del(`session:${userId}:${deviceId}`);
-    logger.info(`User logged out: ${userId}, device: ${deviceId}`);
-    res.json({ message: "Logged out successfully" });
-  } catch (redisError) {
-    logger.error("Redis error during logout:", redisError);
-    res.status(503).json({ message: "Service temporarily unavailable" });
   }
 });
 
@@ -965,7 +996,7 @@ router.post(
   }
 );
 
-//Me 
+//Me
 router.get("/me", authenticate, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -980,7 +1011,9 @@ router.get("/me", authenticate, async (req, res) => {
       7 * 24 * 3600,
       newToken
     );
-    logger.debug(`New token issued and stored for user: ${userId}, device: ${deviceId}`);
+    logger.debug(
+      `New token issued and stored for user: ${userId}, device: ${deviceId}`
+    );
 
     const user = await User.findById(userId).populate("role").select("-__v");
     if (!user) {
@@ -1108,7 +1141,6 @@ router.get(
   }
 );
 
-// Sync Device
 router.post(
   "/sync-device",
   [
@@ -1168,7 +1200,6 @@ router.post(
   }
 );
 
-// Renew Token
 router.post(
   "/renew-token",
   [
@@ -1186,51 +1217,72 @@ router.post(
     }
 
     const { userId, deviceId } = req.body;
+    const lockKey = `login:${userId}:${deviceId}`;
 
     try {
-      // Verify user exists and is active
-      const user = await User.findById(userId).select("_id updatedAt");
-      if (!user) {
-        logger.warn(`User not found for token renewal: ${userId}`);
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Check user activity (e.g., last updated within 30 days)
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      if (user.updatedAt < thirtyDaysAgo) {
-        logger.warn(`User inactive for token renewal: ${userId}`);
+      const lockAcquired = await acquireLock(lockKey);
+      if (!lockAcquired) {
+        logger.warn(
+          `Failed to acquire lock for user ${userId}, device ${deviceId}`
+        );
         return res
-          .status(401)
-          .json({ errors: [{ msg: "User account inactive" }] });
+          .status(429)
+          .json({
+            message: "Too many token renewal attempts, please try again",
+          });
       }
 
-      // Generate new token
-      const newToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
-        expiresIn: "7d",
-      });
       try {
+        const user = await User.findById(userId).select("_id updatedAt");
+        if (!user) {
+          logger.warn(`User not found for token renewal: ${userId}`);
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        if (user.updatedAt < thirtyDaysAgo) {
+          logger.warn(`User inactive for token renewal: ${userId}`);
+          return res
+            .status(401)
+            .json({ errors: [{ msg: "User account inactive" }] });
+        }
+
+        const newToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
+          expiresIn: "7d",
+        });
         await redisClient.setEx(
           `session:${userId}:${deviceId}`,
           7 * 24 * 3600,
           newToken
         );
         logger.debug(`Token renewed for user: ${userId}, device: ${deviceId}`);
-      } catch (redisError) {
-        logger.error("Redis error during token renewal:", redisError);
-        return res
-          .status(503)
-          .json({ errors: [{ msg: "Service temporarily unavailable" }] });
-      }
 
-      logger.info(
-        `Token renewed successfully for user: ${userId}, device: ${deviceId}`
-      );
-      res.json({ message: "Token renewed successfully", token: newToken });
+        logger.info(
+          `Token renewed successfully for user: ${userId}, device: ${deviceId}`
+        );
+        res.json({ message: "Token renewed successfully", token: newToken });
+      } finally {
+        await releaseLock(lockKey);
+      }
     } catch (error) {
       logger.error("Renew token error:", error);
       res.status(500).json({ message: "Server error", error: error.message });
     }
   }
 );
+
+router.post("/logout", authenticate, async (req, res) => {
+  const userId = req.user.userId;
+  const deviceId = req.header("Device-Id") || "unknown";
+
+  try {
+    await redisClient.del(`session:${userId}:${deviceId}`);
+    logger.info(`User logged out: ${userId}, device: ${deviceId}`);
+    res.json({ message: "Logout successful" });
+  } catch (error) {
+    logger.error("Logout error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
 
 module.exports = router;
