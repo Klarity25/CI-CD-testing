@@ -37,5 +37,13 @@
     "socket.io": "^4.8.1",
     "twilio": "^5.5.2",
     "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "chai": "^5.2.0",
+    "mocha": "^11.7.1",
+    "mongodb-memory-server": "^10.1.4",
+    "nock": "^14.0.5",
+    "sinon": "^21.0.0",
+    "supertest": "^7.1.1"
   }
 }
