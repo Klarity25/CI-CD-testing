@@ -1,0 +1,45 @@
+name: Test on Staging Push
+on:
+  push:
+    branches:
+      - staging
+jobs:
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install frontend dependencies
+        run: cd lms-frontend && npm ci
+      - name: Run frontend tests
+        run: cd lms-frontend && npm test
+        env:
+          CI: true
+          ENV_PUBLIC_API_URL: https://klaritilmstest-39565511862.asia-south2.run.app/api
+          GOOGLE_DRIVE_DOCUMENT_FOLDER_ID: dummy_folder_id
+          GOOGLE_CLIENT_ID: dummy_client_id
+  test-backend:
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:latest
+        ports:
+          - 27017:27017
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install backend dependencies
+        run: cd lms-backend && npm ci
+      - name: Run backend tests
+        run: cd lms-backend && npm test
+        env:
+          CI: true
+          MONGO_URI: mongodb+srv://testklariti:test1234@test-klariti-cluster.oushgt0.mongodb.net/?retryWrites=true&w=majority&appName=test-klariti-cluster
